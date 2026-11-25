@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# PyInstaller
+build/
+dist/
+
+# Model weights (unduh otomatis / 49 MB)
+yolov9c.pt
+
+# Hasil rekaman & kalibrasi lokal
+traffic_monitoring/
+calibration.json
+
+# Jejak kesalahan exe
+proter_error.log

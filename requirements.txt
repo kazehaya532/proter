@@ -1,0 +1,12 @@
+# Pustaka inti pipeline (deteksi, pelacakan, stereo)
+opencv-python>=4.8
+numpy>=1.24
+
+# Deteksi kendaraan YOLO + tracker ByteTrack (unduh bobot model saat pertama kali dipakai)
+ultralytics>=8.1
+
+# Opsional: dipakai contoh analisis di proter.ipynb (grafik kecepatan)
+matplotlib>=3.7
+
+# Catatan: tkinter (antarmuka grafis) sudah menyertai instalasi Python standar.
+# Di Linux/Debian instal dengan: sudo apt install python3-tk
