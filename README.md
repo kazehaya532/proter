@@ -5,7 +5,7 @@ mendeteksi kendaraan, melacaknya dengan ID yang tetap, mengukur **posisi 3D
 (meter)** dan **kecepatan (m/s)**, lalu menyimpan semuanya ke file data yang
 mudah dibaca program lain.
 
-Panduan lengkap untuk pemula tersedia di **`proter.ipynb`** (buka dengan
+Panduan lengkap untuk pemula tersedia di **`notebooks/proter.ipynb`** (buka dengan
 Jupyter/VS Code). Dokumen ini ringkasan teknisnya.
 
 ## Cara kerja
@@ -55,6 +55,9 @@ python stereo_traffic_monitor.py run --left vid_l.mp4 --right vid_r.mp4 \
 
 # Render ulang overlay (ID, kecepatan, lintasan) dari sebuah rekaman ke video
 python stereo_traffic_monitor.py overlay recording_001 --camera left --unit km/h
+
+# Kalibrasi manual (approximasi) dari pengukuran tangan, tanpa foto papan catur
+python tools/make_manual_calibration.py --focal-px 1333.333 --baseline-m 1.0 --out Calibration/calibration.json
 ```
 
 GUI juga bisa dijalankan langsung: `python stereo_traffic_gui.py`.
@@ -137,12 +140,14 @@ jejak kesalahannya ditulis ke `proter_error.log` di folder yang sama.
 
 ```
 proter/
-├── proter.ipynb                  panduan berbahasa Indonesia (mulai dari sini)
-├── stereo_traffic_monitor.py     inti pemrosesan + perintah CLI
-├── stereo_traffic_gui.py         antarmuka grafis (Live + Analysis + Calibrate)
-├── proter_app.py                 titik masuk untuk build .exe
-├── Proter.spec                   konfigurasi PyInstaller
+├── notebooks/proter.ipynb           panduan berbahasa Indonesia (mulai dari sini)
+├── stereo_traffic_monitor.py        inti pemrosesan + perintah CLI
+├── stereo_traffic_gui.py            antarmuka grafis (Live + Analysis + Calibrate)
+├── proter_app.py                    titik masuk untuk build .exe
+├── Proter.spec                      konfigurasi PyInstaller
+├── tools/make_manual_calibration.py buat calibration.json manual dari pengukuran
 ├── requirements.txt
-├── tests/test_tracking_data.py   pengujian otomatis lapisan data
-└── dist/Proter/                  hasil build .exe beta (tidak diunggah ke repo)
+├── Calibration/                     foto papan catur + calibration.json (lokal, tidak diunggah)
+├── tests/test_tracking_data.py      pengujian otomatis lapisan data
+└── dist/Proter/                     hasil build .exe beta (tidak diunggah ke repo)
 ```

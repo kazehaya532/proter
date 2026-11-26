@@ -7,12 +7,13 @@ __pycache__/
 build/
 dist/
 
-# Model weights (unduh otomatis / 49 MB)
-yolov9c.pt
+# Model weights (unduh otomatis; jangan di-commit)
+*.pt
 
-# Hasil rekaman & kalibrasi lokal
+# Hasil rekaman & kalibrasi lokal (foto papan catur, JSON hasil, preview)
 traffic_monitoring/
-calibration.json
+Calibration/
+previews/
 
 # Jejak kesalahan exe
 proter_error.log
