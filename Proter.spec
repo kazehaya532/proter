@@ -10,11 +10,16 @@ runs offline. Build with:
 from PyInstaller.utils.hooks import collect_all
 
 datas, binaries, hiddenimports = [], [], []
-for pkg in ("ultralytics",):          # bundle YOLO configs/trackers + torch deps
+# Bundle YOLO configs/trackers + torch deps. torch/torchvision must be listed
+# explicitly: collect_all("ultralytics") alone pulls their Python files but can
+# miss torchvision's compiled _C extension, which registers the torchvision::nms
+# operator (RuntimeError: operator torchvision::nms doesn't exist).
+for pkg in ("ultralytics", "torch", "torchvision"):
     d, b, h = collect_all(pkg)
     datas += d
     binaries += b
     hiddenimports += h
+hiddenimports += ["torchvision", "torchvision._C", "torchvision.ops"]
 
 a = Analysis(
     ["proter_app.py"],
