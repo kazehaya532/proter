@@ -173,13 +173,31 @@ class StereoRig:
         self.f = float(self.P1[0, 0])
         self.cx, self.cy = float(self.P1[0, 2]), float(self.P1[1, 2])
         self.baseline = float(abs(self.P2[0, 3] / self.P2[0, 0]))
+        # Optional field-depth fit in this rig's rectified pixel coordinates.
+        # This changes depth only, not intrinsics, rectification, or matching.
+        self.depth_fit = calib.get("experimental_depth_fit")
+        if self.depth_fit is not None:
+            numerator = float(self.depth_fit["numerator_m_px"])
+            offset = float(self.depth_fit["disparity_offset_px"])
+            if not np.isfinite(numerator) or numerator <= 0 or not np.isfinite(offset):
+                raise ValueError("Experimental depth fit needs a positive finite numerator "
+                                 "and a finite disparity offset.")
+            self.depth_fit = (numerator, offset)
 
     def rectify(self, left, right):
         return (cv2.remap(left, *self.map_l, cv2.INTER_LINEAR),
                 cv2.remap(right, *self.map_r, cv2.INTER_LINEAR))
 
     def triangulate(self, u, v, disparity):
-        z = self.f * self.baseline / disparity
+        if self.depth_fit is None:
+            z = self.f * self.baseline / disparity
+        else:
+            numerator, offset = self.depth_fit
+            corrected_disparity = disparity - offset
+            if not np.isfinite(corrected_disparity) or corrected_disparity <= 0:
+                # The pipeline's existing depth-range gate rejects NaN.
+                return np.full(3, np.nan)
+            z = numerator / corrected_disparity
         return np.array([(u - self.cx) * z / self.f, (v - self.cy) * z / self.f, z])
 
     def export(self):
@@ -211,7 +229,8 @@ class StereoSource:
         if self.fps < 1 or self.fps > 240:
             self.fps = 30.0
         self.size = (int(self.caps[0].get(cv2.CAP_PROP_FRAME_WIDTH)),
-                     int(self.caps[0].get(cv2.CAP_PROP_FRAME_HEIGHT)))
+                      int(self.caps[0].get(cv2.CAP_PROP_FRAME_HEIGHT)))
+        self.capture_sizes = None  # populated from delivered frames, not driver claims
         self.start_ns = time.time_ns()
         self.idx = 0
 
@@ -225,6 +244,10 @@ class StereoSource:
             return False, None, None, 0
         _, fl = self.caps[0].retrieve()
         _, fr = self.caps[1].retrieve()
+        if fl is None or fr is None:
+            return False, None, None, 0
+        self.capture_sizes = {"left": [fl.shape[1], fl.shape[0]],
+                              "right": [fr.shape[1], fr.shape[0]]}
         self.idx += 1
         t_ns = t_live if self.live else self.start_ns + int(self.idx / self.fps * 1e9)
         return True, fl, fr, t_ns
@@ -237,34 +260,85 @@ class StereoSource:
 # --------------------------------------------------------------------------- #
 # Stereo matching + motion estimation
 # --------------------------------------------------------------------------- #
-def match_disparity(gray_l, gray_r, bbox, max_disp, min_disp=1, min_score=0.5):
-    """Find the disparity of a left-image bbox by template matching along the
-    same row band in the right image (images must be rectified)."""
-    x, y, w, h = bbox
-    pw, ph = max(8, int(w * 0.5)), max(8, int(h * 0.5))
-    x0, y0 = int(x + w / 2 - pw / 2), int(y + h / 2 - ph / 2)
+def match_disparity(gray_l, gray_r, bbox, max_disp, min_disp=1, min_score=0.5,
+                    max_dy=32, grid=(4, 3)):
+    """Robustly find the disparity of a left-image bbox.
+
+    The old single-patch matcher slid one large template along a single row of
+    the right image. That fails in two common ways: with slightly misaligned
+    cameras (measured ~25 px vertical offset on the reference rig) the same row
+    shows different content, and one patch can lock onto the background instead
+    of the object, producing wildly wrong distances.
+
+    Instead the bbox interior is covered with a grid of small patches, each
+    matched in 2-D (horizontal AND vertical) in the right image. The object
+    disparity is the median of the patch disparities after outlier rejection.
+    Returns None when too few patches agree, so unreliable objects are dropped
+    instead of reported with a confident-looking wrong number.
+    """
     H, W = gray_l.shape
-    if x0 < 0 or y0 < 0 or x0 + pw > W or y0 + ph > H:
+    x, y, w, h = bbox
+    # use the bbox interior so a loose box cannot match surrounding background
+    mx, my = 0.12 * w, 0.12 * h
+    x0i, y0i, x1i, y1i = x + mx, y + my, x + w - mx, y + h - my
+    if x1i - x0i < 16 or y1i - y0i < 16:
+        x0i, y0i, x1i, y1i = x, y, x + w, y + h
+    if x0i < 0 or y0i < 0 or x1i > W or y1i > H:
         return None
-    patch = gray_l[y0:y0 + ph, x0:x0 + pw]
-    xs, xe = max(0, x0 - max_disp), x0 + pw - min_disp
-    strip = gray_r[y0:y0 + ph, xs:xe]
-    if strip.shape[1] < pw:
+
+    # match at half resolution: 2-D search is ~8x cheaper, accuracy is plenty
+    s = 0.5
+    gl = cv2.resize(gray_l, (W // 2, H // 2))
+    gr = cv2.resize(gray_r, (W // 2, H // 2))
+    hH, hW = gl.shape
+
+    ps = int(np.clip(min(x1i - x0i, y1i - y0i) / 4, 24, 64))  # full-res patch size
+    ps_h = max(8, int(ps * s))
+    max_dh, min_dh, dy_h = max_disp * s, min_disp * s, max_dy * s
+
+    xs_c = np.linspace(x0i + ps / 2, x1i - ps / 2, grid[0])
+    ys_c = np.linspace(y0i + ps / 2, y1i - ps / 2, grid[1])
+    dxs = []
+    for cy in ys_c:
+        for cx in xs_c:
+            px, py = int(cx * s), int(cy * s)
+            ph0, pw0 = py - ps_h // 2, px - ps_h // 2
+            if ph0 < 0 or pw0 < 0 or ph0 + ps_h > hH or pw0 + ps_h > hW:
+                continue
+            patch = gl[ph0:ph0 + ps_h, pw0:pw0 + ps_h]
+            if float(patch.std()) < 2.0:
+                continue  # constant/near-constant templates have meaningless NCC scores
+            rx0 = max(0, pw0 - int(max_dh))
+            rx1 = min(hW, pw0 + ps_h - int(min_dh))
+            ry0 = max(0, ph0 - int(dy_h))
+            ry1 = min(hH, ph0 + int(dy_h) + ps_h)
+            if rx1 - rx0 < ps_h or ry1 - ry0 < ps_h:
+                continue
+            res = cv2.matchTemplate(gr[ry0:ry1, rx0:rx1], patch, cv2.TM_CCOEFF_NORMED)
+            _, score, _, loc = cv2.minMaxLoc(res)
+            if score < min_score:
+                continue
+            lx = loc[0]
+            row = res[loc[1]]
+            if 0 < lx < res.shape[1] - 1:  # sub-pixel parabola fit
+                a, b, c = row[lx - 1], row[lx], row[lx + 1]
+                den = a - 2 * b + c
+                if abs(den) > 1e-9:
+                    lx = lx + 0.5 * (a - c) / den
+            disparity = (pw0 - (rx0 + lx)) / s
+            if min_disp <= disparity <= max_disp:
+                dxs.append(disparity)
+
+    if len(dxs) < 3:
         return None
-    res = cv2.matchTemplate(strip, patch, cv2.TM_CCOEFF_NORMED)
-    _, score, _, loc = cv2.minMaxLoc(res)
-    if score < min_score:
+    arr = np.asarray(dxs)
+    med = float(np.median(arr))
+    mad = float(np.median(np.abs(arr - med)))
+    tol = max(4.0, 4.0 * 1.4826 * mad)
+    inl = arr[np.abs(arr - med) <= tol]
+    if len(inl) < max(3, int(0.3 * grid[0] * grid[1])):
         return None
-    # sub-pixel refinement (parabola fit around the peak)
-    mx = loc[0]
-    row = res[0]
-    if 0 < mx < len(row) - 1:
-        a, b, c = row[mx - 1], row[mx], row[mx + 1]
-        den = a - 2 * b + c
-        if abs(den) > 1e-9:
-            mx = mx + 0.5 * (a - c) / den
-    disparity = x0 - (xs + mx)
-    return float(disparity) if disparity >= min_disp else None
+    return float(np.median(inl))
 
 
 class MotionEstimator:
@@ -310,7 +384,7 @@ class StereoPipeline:
     (handy for tests); by default Ultralytics YOLO with its built-in tracker is used.
     """
 
-    def __init__(self, rig, model_path="yolov9c.pt", conf=0.35, tracker="bytetrack.yaml",
+    def __init__(self, rig, model_path="yolov8n.pt", conf=0.35, tracker="bytetrack.yaml",
                  max_disp=128, min_z=2.0, max_z=80.0, detector=None):
         self.rig, self.conf, self.tracker = rig, conf, tracker
         self.max_disp, self.min_z, self.max_z = max_disp, min_z, max_z
@@ -407,9 +481,11 @@ def det_to_row(d):
 
 
 class Recorder:
-    def __init__(self, root, rig, source, left_name, right_name, detector_info, save_video=True):
+    def __init__(self, root, rig, source, left_name, right_name, detector_info, save_video=True,
+                 stereo_settings=None):
         self.dir = next_recording_dir(root)
         self.rig = rig
+        self.source = source
         self.frames, self.last_t = 0, source.start_ns
         with open(os.path.join(self.dir, "calibration.json"), "w") as f:
             json.dump(rig.export(), f, indent=2)
@@ -435,6 +511,9 @@ class Recorder:
             "start_timestamp_ns": source.start_ns,
             "frame_rate_fps": source.fps,
             "video_resolution": list(rig.size),
+            "capture_resolution": getattr(source, "capture_sizes", None),
+            "stereo_settings": stereo_settings or {},
+            "experimental_depth_fit": rig.calib.get("experimental_depth_fit"),
             "cameras": {"left": str(left_name), "right": str(right_name)},
             "sources_are_live": source.live,
             "video_files": ({"left": "left_camera.mp4", "right": "right_camera.mp4"}
@@ -471,6 +550,7 @@ class Recorder:
             json.dump(self.meta, f, indent=2)
 
     def write(self, frame_id, t_ns, rect_left, rect_right, dets):
+        self.meta["capture_resolution"] = getattr(self.source, "capture_sizes", None)
         for d in dets:
             self.writer.writerow(det_to_row(d))
         if self.writers:
@@ -746,9 +826,11 @@ def run(args):
     pipe = StereoPipeline(rig, args.model, args.conf, args.tracker,
                           args.max_disp, args.min_z, args.max_z)
     rec = Recorder(args.out, rig, src, args.left, args.right,
-                   {"model": args.model, "conf": args.conf,
-                    "classes": list(VEHICLE_CLASSES.values())},
-                   save_video=not args.no_video)
+                    {"model": args.model, "conf": args.conf,
+                     "classes": list(VEHICLE_CLASSES.values())},
+                   save_video=not args.no_video,
+                   stereo_settings={"max_disparity_px": args.max_disp,
+                                    "min_depth_m": args.min_z, "max_depth_m": args.max_z})
     trails = LiveTrails()
     opts = OverlayOptions()
     frame_id = 0
@@ -825,10 +907,10 @@ def main():
     r.add_argument("--right", required=True, help="right video file or camera index")
     r.add_argument("--calibration", required=True)
     r.add_argument("--out", default="traffic_monitoring")
-    r.add_argument("--model", default="yolov9c.pt")
+    r.add_argument("--model", default="yolov8n.pt")
     r.add_argument("--tracker", default="bytetrack.yaml")
     r.add_argument("--conf", type=float, default=0.35)
-    r.add_argument("--max-disp", type=int, default=128, help="max disparity search (px)")
+    r.add_argument("--max-disp", type=int, default=750, help="max disparity search (px)")
     r.add_argument("--min-z", type=float, default=2.0)
     r.add_argument("--max-z", type=float, default=80.0)
     r.add_argument("--no-video", action="store_true", help="do not save rectified videos")

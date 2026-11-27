@@ -12,8 +12,15 @@ dist/
 
 # Hasil rekaman & kalibrasi lokal (foto papan catur, JSON hasil, preview)
 traffic_monitoring/
-Calibration/
+Calibration/*
+!Calibration/manual_calibration_experimental_multidistance.json
 previews/
+actual_test_log/
+.pytest_cache/
+release-build/
+release-work/
+release-assets/
+/-w
 
 # Jejak kesalahan exe
 proter_error.log

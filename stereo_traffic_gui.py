@@ -56,16 +56,21 @@ def app_dir():
 def default_model_path():
     """Existing YOLO weights: cwd first, then next to the app; else the bundled path."""
     for base in (os.getcwd(), app_dir()):
-        p = os.path.join(base, "yolov9c.pt")
+        p = os.path.join(base, "yolov8n.pt")
         if os.path.isfile(p):
             return p
-    return os.path.join(app_dir(), "yolov9c.pt")
+    return os.path.join(app_dir(), "yolov8n.pt")
 
 
 def default_calib_path():
     """Existing calibration.json: cwd first, then next to the app."""
     for base in (os.getcwd(), app_dir()):
         p = os.path.join(base, "calibration.json")
+        if os.path.isfile(p):
+            return p
+    for base in (os.getcwd(), app_dir()):
+        p = os.path.join(base, "Calibration",
+                         "manual_calibration_experimental_multidistance.json")
         if os.path.isfile(p):
             return p
     return os.path.join(app_dir(), "calibration.json")
@@ -109,9 +114,12 @@ class LiveWorker(threading.Thread):
             src = stm.StereoSource(cfg["left"], cfg["right"])
             if cfg["record"]:
                 rec = stm.Recorder(cfg["out_dir"], rig, src, cfg["left"], cfg["right"],
-                                   {"model": cfg["model"], "conf": cfg["conf"],
-                                    "classes": list(stm.VEHICLE_CLASSES.values())},
-                                   save_video=cfg["save_video"])
+                                    {"model": cfg["model"], "conf": cfg["conf"],
+                                     "classes": list(stm.VEHICLE_CLASSES.values())},
+                                    save_video=cfg["save_video"],
+                                    stereo_settings={"max_disparity_px": cfg["max_disp"],
+                                                     "min_depth_m": cfg["min_z"],
+                                                     "max_depth_m": cfg["max_z"]})
             trails = stm.LiveTrails()
             frame_dt = 1.0 / src.fps
             t_prev = time.perf_counter()
@@ -138,6 +146,8 @@ class LiveWorker(threading.Thread):
                 self._put(("frame", {
                     "left": rl, "right": rr, "dets": dets, "frame_id": frame_id,
                     "t_ns": t_ns, "fps": fps,
+                    "capture_sizes": src.capture_sizes,
+                    "experimental_fit": rig.depth_fit is not None,
                     "trails_l": trails.trails("left"), "trails_r": trails.trails("right"),
                 }))
             msg = f"Finished after {frame_id} frames."
@@ -263,7 +273,7 @@ class App(tk.Tk):
         self.savevid_var = tk.BooleanVar(value=True)
         self.realtime_var = tk.BooleanVar(value=True)
         self.out_var = tk.StringVar(value="traffic_monitoring")
-        self.maxdisp_var = tk.IntVar(value=128)
+        self.maxdisp_var = tk.IntVar(value=750)
         self.minz_var = tk.DoubleVar(value=2.0)
         self.maxz_var = tk.DoubleVar(value=80.0)
 
@@ -665,6 +675,11 @@ class App(tk.Tk):
 
     def _show_live(self, p):
         hud = f"LIVE  frame {p['frame_id']}  {p['fps']:.1f} fps  vehicles {len(p['dets'])}"
+        sizes = p.get("capture_sizes")
+        if sizes:
+            hud += "  input " + "/".join(f"{w}x{h}" for w, h in sizes.values())
+        if p.get("experimental_fit"):
+            hud += "  EXPERIMENTAL DEPTH FIT"
         img = stm.compose_view(p["left"], p["right"], p["dets"], self._opts(),
                                p["trails_l"], p["trails_r"], hud)
         self._display(img)

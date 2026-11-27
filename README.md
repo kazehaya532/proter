@@ -1,5 +1,24 @@
 # Proter — Monitor Lalu Lintas Stereo
 
+## Windows release / calibrated field trial
+
+See [QUICKSTART.md](QUICKSTART.md) for the packaged application and rig-specific
+experimental calibration. The default model is **yolov8n.pt**.
+`Calibration/manual_calibration_experimental_multidistance.json` is preserved
+in Git and the release. It is not a universal calibration.
+
+Release build (separate from older, possibly running EXEs):
+
+```powershell
+.\.venv\Scripts\pyinstaller.exe Proter.spec --noconfirm --clean --distpath release-build/v0.2.1-beta --workpath release-work/v0.2.1-beta
+.\.venv\Scripts\python.exe tools/package_release.py --app-dir release-build/v0.2.1-beta/Proter --model yolov8n.pt --output release-assets --version v0.2.1-beta
+```
+
+Install pytest to run regressions: `python -m pip install pytest`.
+Run `python -m pytest tests/ -q`. License review and operator confirmation of
+the packaged EXE are required before publication; see
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
 Sistem pemantauan lalu lintas menggunakan **dua kamera** (*stereo vision*):
 mendeteksi kendaraan, melacaknya dengan ID yang tetap, mengukur **posisi 3D
 (meter)** dan **kecepatan (m/s)**, lalu menyimpan semuanya ke file data yang
@@ -35,7 +54,8 @@ python -m venv .venv
 pip install -r requirements.txt
 ```
 
-Bobot YOLO (`yolov9c.pt`, ±25 MB) diunduh otomatis saat pertama kali dipakai.
+Bobot YOLO (`yolov8n.pt`, ±6 MB) diunduh otomatis saat pertama kali dipakai
+jika tidak tersedia; paket release menyertakannya untuk pemakaian offline.
 
 ## Penggunaan
 
@@ -125,7 +145,7 @@ OpenCV + PyTorch sangat besar:
 
 ```bash
 .venv\Scripts\pyinstaller Proter.spec --noconfirm --clean
-Copy-Item yolov9c.pt dist\Proter\          # bobot model agar jalan offline
+Copy-Item yolov8n.pt dist\Proter\          # bobot model agar jalan offline
 Copy-Item calibration.json dist\Proter\ -ErrorAction SilentlyContinue
 ```
 

@@ -1,0 +1,41 @@
+{
+  "image_size": [1280, 720],
+  "left": {
+    "camera_matrix": [[1333.333, 0.0, 639.5], [0.0, 1333.333, 359.5], [0.0, 0.0, 1.0]],
+    "dist_coeffs": [0.0, 0.0, 0.0, 0.0, 0.0]
+  },
+  "right": {
+    "camera_matrix": [[1333.333, 0.0, 639.5], [0.0, 1333.333, 359.5], [0.0, 0.0, 1.0]],
+    "dist_coeffs": [0.0, 0.0, 0.0, 0.0, 0.0]
+  },
+  "stereo": {
+    "R": [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
+    "T": [-1.0, 0.0, 0.0],
+    "baseline_m": 1.0
+  },
+  "coordinate_system": {
+    "origin": "optical centre of the left camera",
+    "x_axis": "right in the left image",
+    "y_axis": "down in the left image",
+    "z_axis": "forward, along the left camera optical axis (depth)",
+    "units": "metres",
+    "pixel_space": "rectified images (see left_camera.mp4 / right_camera.mp4)"
+  },
+  "manual": true,
+  "experimental_depth_fit": {
+    "numerator_m_px": 1189.8461538461531,
+    "disparity_offset_px": 92.7692307692308,
+    "formula": "depth_m = numerator_m_px / (left_u - right_u - disparity_offset_px)",
+    "fit_method": "Unweighted least squares: disparity_px = numerator_m_px / known_forward_depth_m + disparity_offset_px",
+    "reference_image_size": [1280, 720],
+    "reference_points": [
+      {"depth_m": 2.0, "left_px": [999.4, 383.7], "right_px": [316.8, 312.7]},
+      {"depth_m": 4.0, "left_px": [863.2, 349.5], "right_px": [459.9, 336.0]},
+      {"depth_m": 6.0, "left_px": [861.2, 353.0], "right_px": [563.5, 339.5]},
+      {"depth_m": 8.0, "left_px": [830.0, 356.6], "right_px": [603.1, 343.9]}
+    ],
+    "reference_predicted_depths_m": [2.01726701, 3.831653, 5.80608836, 8.87079199],
+    "observed_fit_range_m": [2.0, 8.0]
+  },
+  "note": "EXPERIMENTAL, NOT VALIDATED. Requires updated StereoRig code supporting experimental_depth_fit; older executables silently ignore the fit. Original intrinsics and rectification preserved. Coefficients apply only to this 1280x720 processing space and unchanged rig/capture settings. This is an empirical depth correction, NOT a recovered physical calibration; does not correct vertical misalignment, lens distortion, or bad correspondences. X/Y and velocity remain unvalidated. Fit includes the anomalous 2 m point with 71 px vertical difference. Held-out prediction error reaches about 1.9 m at 8 m. Validate on independent physical measurements; extrapolation beyond 2-8 m is unreliable. Disparities <=92.7692307692308 px are rejected. Set max disparity >=700 px for the supplied 2 m reference (682.6 px); the 512 px default excludes it. No executable rebuilt."
+}

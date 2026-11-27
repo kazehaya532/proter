@@ -301,11 +301,14 @@ def test_stereo_calibration_synthetic():
     with tempfile.TemporaryDirectory() as td:
         dl, dr = Path(td) / "left", Path(td) / "right"
         dl.mkdir(); dr.mkdir()
-        for k in range(10):
-            z = 0.95 + 0.04 * k              # keep the board inside BOTH views
+        # The former ten near-frontoparallel poses let distortion/focal length
+        # overfit the rasterized right board (~0.70 m versus a true 0.50 m).
+        # Keep the accuracy assertions; better constrain intrinsic calibration.
+        for k in range(24):
+            z = 0.95 + (0.4 / 24) * k       # keep the board inside BOTH views
             t = np.array([-0.125 + 0.04 * np.sin(0.9 * k),
                           -0.0875 + 0.03 * np.cos(1.1 * k), z])
-            rvec = np.array([0.08 * np.sin(0.7 * k), 0.10 * np.cos(0.5 * k),
+            rvec = np.array([0.18 * np.sin(0.7 * k), 0.20 * np.cos(0.5 * k),
                              0.04 * np.sin(k)])
             img_l = np.full((big[1], big[0]), 255, np.uint8)
             img_r = np.full((big[1], big[0]), 255, np.uint8)
