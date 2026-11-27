@@ -10,8 +10,8 @@ in Git and the release. It is not a universal calibration.
 Release build (separate from older, possibly running EXEs):
 
 ```powershell
-.\.venv\Scripts\pyinstaller.exe Proter.spec --noconfirm --clean --distpath release-build/v0.2.1-beta --workpath release-work/v0.2.1-beta
-.\.venv\Scripts\python.exe tools/package_release.py --app-dir release-build/v0.2.1-beta/Proter --model yolov8n.pt --output release-assets --version v0.2.1-beta
+.\.venv\Scripts\pyinstaller.exe Proter.spec --noconfirm --clean --distpath release-build/v0.2.5-beta --workpath release-work/v0.2.5-beta
+.\.venv\Scripts\python.exe tools/package_release.py --app-dir release-build/v0.2.5-beta/Proter --model yolov8n.pt --output release-assets --version v0.2.5-beta
 ```
 
 Install pytest to run regressions: `python -m pip install pytest`.

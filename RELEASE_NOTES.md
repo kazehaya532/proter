@@ -1,4 +1,4 @@
-# v0.2.1-beta — experimental field-depth correction
+# v0.2.5-beta — experimental field-depth correction
 
 ## Changes
 
